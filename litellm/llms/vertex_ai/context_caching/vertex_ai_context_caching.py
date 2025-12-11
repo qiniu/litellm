@@ -1,4 +1,5 @@
 from typing import List, Literal, Optional, Tuple, Union
+from datetime import datetime
 
 import httpx
 
@@ -21,11 +22,71 @@ from ..vertex_llm_base import VertexBase
 from .transformation import (
     separate_cached_messages,
     transform_openai_messages_to_gemini_context_caching,
+    extract_ttl_from_cached_messages,
 )
+from .local_cache_manager import get_cache_manager
 
 local_cache_obj = Cache(
     type=LiteLLMCacheType.LOCAL
 )  # only used for calling 'get_cache_key' function
+
+
+def parse_ttl_to_seconds(ttl_str: Optional[str]) -> float:
+    """
+    Parse TTL string to seconds.
+
+    Args:
+        ttl_str: TTL string like "3600s", "1.5s"
+
+    Returns:
+        TTL in seconds as float, or default 3600.0 if invalid
+    """
+    if not ttl_str:
+        return 3600.0  # Default 1 hour
+
+    import re
+    pattern = r'^([0-9]*\.?[0-9]+)s$'
+    match = re.match(pattern, ttl_str)
+
+    if not match:
+        return 3600.0
+
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return 3600.0
+
+
+def parse_expire_time_to_remaining_ttl(expire_time_str: str) -> Optional[float]:
+    """
+    Parse expireTime string (ISO 8601 format) and calculate remaining TTL in seconds.
+
+    Args:
+        expire_time_str: ISO 8601 format string like "2014-10-02T15:01:23Z"
+
+    Returns:
+        Remaining TTL in seconds, or None if parsing fails or already expired
+    """
+    if not expire_time_str:
+        return None
+
+    try:
+        # Handle both 'Z' and timezone offset formats
+        if expire_time_str.endswith('Z'):
+            expire_time_str = expire_time_str.replace('Z', '+00:00')
+
+        expire_time = datetime.fromisoformat(expire_time_str)
+        current_time = datetime.now(expire_time.tzinfo)
+        remaining_seconds = (expire_time - current_time).total_seconds()
+
+        # Return None if already expired
+        if remaining_seconds <= 0:
+            return None
+
+        return remaining_seconds
+    except (ValueError, AttributeError, TypeError):
+        # Return None if parsing fails
+        return None
 
 
 class ContextCachingEndpoints(VertexBase):
@@ -36,7 +97,7 @@ class ContextCachingEndpoints(VertexBase):
     """
 
     def __init__(self) -> None:
-        pass
+        self.local_cache_manager = get_cache_manager()
 
     def _get_token_and_url_context_caching(
         self,
@@ -105,16 +166,16 @@ class ContextCachingEndpoints(VertexBase):
         vertex_auth_header: Optional[str],
     ) -> Optional[str]:
         """
-        Checks if content already cached.
+        Checks if content already cached on Google API.
 
-        Currently, checks cache list, for cache key == displayName, since Google doesn't let us set the name of the cache (their API docs are out of sync with actual implementation).
+        Note: Local cache should be checked by caller first to avoid redundant network requests.
 
         Returns
         - cached_content_name - str - cached content name stored on google. (if found.)
         OR
         - None
         """
-
+        # Check with Google API (local cache check is done by caller)
         _, url = self._get_token_and_url_context_caching(
             gemini_api_key=api_key,
             custom_llm_provider=custom_llm_provider,
@@ -177,16 +238,16 @@ class ContextCachingEndpoints(VertexBase):
         vertex_auth_header: Optional[str]
     ) -> Optional[str]:
         """
-        Checks if content already cached.
+        Async version - checks if content already cached on Google API.
 
-        Currently, checks cache list, for cache key == displayName, since Google doesn't let us set the name of the cache (their API docs are out of sync with actual implementation).
+        Note: Local cache should be checked by caller first to avoid redundant network requests.
 
         Returns
         - cached_content_name - str - cached content name stored on google. (if found.)
         OR
         - None
         """
-
+        # Check with Google API (local cache check is done by caller)
         _, url = self._get_token_and_url_context_caching(
             gemini_api_key=api_key,
             custom_llm_provider=custom_llm_provider,
@@ -231,7 +292,32 @@ class ContextCachingEndpoints(VertexBase):
         for cached_item in all_cached_items["cachedContents"]:
             display_name = cached_item.get("displayName")
             if display_name is not None and display_name == cache_key:
-                return cached_item.get("name")
+                cache_id = cached_item.get("name")
+                expire_time = cached_item.get("expireTime")
+
+                if cache_id:
+                    # Calculate remaining TTL from expireTime
+                    if expire_time:
+                        remaining_ttl = parse_expire_time_to_remaining_ttl(expire_time)
+                        if remaining_ttl is None:
+                            # Already expired, don't store in local cache
+                            return None
+                        ttl_seconds = remaining_ttl
+                    else:
+                        # If no expireTime, use default TTL
+                        ttl_seconds = 3600.0
+
+                    # Store in local cache with accurate TTL
+                    self.local_cache_manager.set_cache(
+                        cache_key=cache_key,
+                        cache_id=cache_id,
+                        ttl_seconds=ttl_seconds,
+                        vertex_project=vertex_project,
+                        vertex_location=vertex_location,
+                        custom_llm_provider=custom_llm_provider
+                    )
+
+                return cache_id
 
         return None
 
@@ -302,10 +388,23 @@ class ContextCachingEndpoints(VertexBase):
         else:
             client = client
 
-        ## CHECK IF CACHED ALREADY
+        ## Generate cache key
         generated_cache_key = local_cache_obj.get_cache_key(
             messages=cached_messages, tools=tools
         )
+
+        # OPTIMIZATION: Check local cache first (no network call, with project/location scope)
+        local_cache_id = self.local_cache_manager.get_cache(
+            cache_key=generated_cache_key,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider
+        )
+        if local_cache_id is not None:
+            # Found valid cache locally, return immediately
+            return non_cached_messages, optional_params, local_cache_id
+
+        ## CHECK IF CACHED ON GOOGLE (network call, but only if not in local cache)
         google_cache_name = self.check_cache(
             cache_key=generated_cache_key,
             client=client,
@@ -361,10 +460,32 @@ class ContextCachingEndpoints(VertexBase):
         cached_content_response_obj = VertexAICachedContentResponseObject(
             name=raw_response_cached.get("name"), model=raw_response_cached.get("model")
         )
+
+        cache_id = cached_content_response_obj["name"]
+
+        # OPTIMIZATION: Store newly created cache in local cache manager (with project/location scope)
+        # Extract TTL from the request body
+        ttl_str = cached_content_request_body.get("ttl")
+        if ttl_str:
+            ttl_seconds = parse_ttl_to_seconds(ttl_str)
+        else:
+            # Extract from messages if not in request body
+            ttl_str_from_messages = extract_ttl_from_cached_messages(cached_messages)
+            ttl_seconds = parse_ttl_to_seconds(ttl_str_from_messages) if ttl_str_from_messages else 3600.0
+
+        self.local_cache_manager.set_cache(
+            cache_key=generated_cache_key,
+            cache_id=cache_id,
+            ttl_seconds=ttl_seconds,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider
+        )
+
         return (
             non_cached_messages,
             optional_params,
-            cached_content_response_obj["name"],
+            cache_id,
         )
 
     async def async_check_and_create_cache(
@@ -431,10 +552,22 @@ class ContextCachingEndpoints(VertexBase):
         else:
             client = client
 
-        ## CHECK IF CACHED ALREADY
+        ## Generate cache key
         generated_cache_key = local_cache_obj.get_cache_key(
             messages=cached_messages, tools=tools
         )
+
+        # OPTIMIZATION: Check local cache first (with project/location scope)
+        local_cache_id = self.local_cache_manager.get_cache(
+            cache_key=generated_cache_key,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider
+        )
+        if local_cache_id is not None:
+            return non_cached_messages, optional_params, local_cache_id
+
+        ## CHECK IF CACHED ON GOOGLE
         google_cache_name = await self.async_check_cache(
             cache_key=generated_cache_key,
             client=client,
@@ -491,10 +624,30 @@ class ContextCachingEndpoints(VertexBase):
         cached_content_response_obj = VertexAICachedContentResponseObject(
             name=raw_response_cached.get("name"), model=raw_response_cached.get("model")
         )
+
+        cache_id = cached_content_response_obj["name"]
+
+        # OPTIMIZATION: Store in local cache (with project/location scope)
+        ttl_str = cached_content_request_body.get("ttl")
+        if ttl_str:
+            ttl_seconds = parse_ttl_to_seconds(ttl_str)
+        else:
+            ttl_str_from_messages = extract_ttl_from_cached_messages(cached_messages)
+            ttl_seconds = parse_ttl_to_seconds(ttl_str_from_messages) if ttl_str_from_messages else 3600.0
+
+        self.local_cache_manager.set_cache(
+            cache_key=generated_cache_key,
+            cache_id=cache_id,
+            ttl_seconds=ttl_seconds,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider
+        )
+
         return (
             non_cached_messages,
             optional_params,
-            cached_content_response_obj["name"],
+            cache_id,
         )
 
     def get_cache(self):
