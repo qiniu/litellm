@@ -4,6 +4,7 @@ from datetime import datetime
 import httpx
 
 import litellm
+from litellm import verbose_logger
 from litellm.caching.caching import Cache, LiteLLMCacheType
 from litellm.litellm_core_utils.litellm_logging import Logging
 from litellm.llms.custom_httpx.http_handler import (
@@ -220,7 +221,32 @@ class ContextCachingEndpoints(VertexBase):
         for cached_item in all_cached_items["cachedContents"]:
             display_name = cached_item.get("displayName")
             if display_name is not None and display_name == cache_key:
-                return cached_item.get("name")
+                cache_id = cached_item.get("name")
+                expire_time = cached_item.get("expireTime")
+
+                if cache_id:
+                    # Calculate remaining TTL from expireTime
+                    if expire_time:
+                        remaining_ttl = parse_expire_time_to_remaining_ttl(expire_time)
+                        if remaining_ttl is None:
+                            # Already expired, don't store in local cache
+                            return None
+                        ttl_seconds = remaining_ttl
+                    else:
+                        # If no expireTime, use default TTL
+                        ttl_seconds = 3600.0
+
+                    # Store in local cache with accurate TTL
+                    self.local_cache_manager.set_cache(
+                        cache_key=cache_key,
+                        cache_id=cache_id,
+                        ttl_seconds=ttl_seconds,
+                        vertex_project=vertex_project,
+                        vertex_location=vertex_location,
+                        custom_llm_provider=custom_llm_provider
+                    )
+
+                return cache_id
 
         return None
 
@@ -392,6 +418,10 @@ class ContextCachingEndpoints(VertexBase):
         generated_cache_key = local_cache_obj.get_cache_key(
             messages=cached_messages, tools=tools
         )
+        verbose_logger.debug(
+            f"Vertex AI Context Caching: Generated cache_key={generated_cache_key[:50]}... "
+            f"(project={vertex_project}, location={vertex_location}, provider={custom_llm_provider})"
+        )
 
         # OPTIMIZATION: Check local cache first (no network call, with project/location scope)
         local_cache_id = self.local_cache_manager.get_cache(
@@ -402,9 +432,21 @@ class ContextCachingEndpoints(VertexBase):
         )
         if local_cache_id is not None:
             # Found valid cache locally, return immediately
+            verbose_logger.debug(
+                f"Vertex AI Context Caching: ✅ Local cache HIT - cache_id={local_cache_id}, "
+                f"cache_key={generated_cache_key[:50]}..."
+            )
             return non_cached_messages, optional_params, local_cache_id
+        
+        verbose_logger.debug(
+            f"Vertex AI Context Caching: ❌ Local cache MISS - cache_key={generated_cache_key[:50]}..., "
+            f"querying Google API..."
+        )
 
         ## CHECK IF CACHED ON GOOGLE (network call, but only if not in local cache)
+        verbose_logger.debug(
+            f"Vertex AI Context Caching: Querying Google API for cache_key={generated_cache_key[:50]}..."
+        )
         google_cache_name = self.check_cache(
             cache_key=generated_cache_key,
             client=client,
@@ -418,7 +460,16 @@ class ContextCachingEndpoints(VertexBase):
             vertex_auth_header=vertex_auth_header
         )
         if google_cache_name:
+            verbose_logger.debug(
+                f"Vertex AI Context Caching: ✅ Google API cache FOUND - cache_id={google_cache_name}, "
+                f"cache_key={generated_cache_key[:50]}..."
+            )
             return non_cached_messages, optional_params, google_cache_name
+        
+        verbose_logger.debug(
+            f"Vertex AI Context Caching: ❌ Google API cache NOT FOUND - cache_key={generated_cache_key[:50]}..., "
+            f"creating new cache..."
+        )
 
         ## TRANSFORM REQUEST
         cached_content_request_body = (
