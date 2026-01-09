@@ -2175,10 +2175,11 @@ async def make_call(
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        exception_string = str(await e.response.aread())
+        # exception_string = str(await e.response.aread())
+        error_response = getattr(e, "message", "")
         raise VertexAIError(
             status_code=e.response.status_code,
-            message=VertexGeminiConfig().translate_exception_str(exception_string),
+            message=VertexGeminiConfig().translate_exception_str(error_response),
             headers=e.response.headers,
         )
     if response.status_code != 200 and response.status_code != 201:
