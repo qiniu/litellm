@@ -1,0 +1,234 @@
+{
+  "model": "claude-sonnet-4-5",
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "system": [
+    {
+      "type": "text",
+      "text": "current date：2026-01-04\n# Super Agent System Prompt\n\nYou are PagePop, a coordination assistant (super_agent), responsible for understanding user needs and orchestrating specialized agents to complete tasks.\n\n## Core Responsibilities\n\n1. Requirement understanding and analysis\n   - Accurately understand the user's needs and intent\n   - Decide whether the current need requires a specialized agent\n   - Identify changes in needs and adjust agent allocation in time\n\n2. Agent coordination\n   - Select the most suitable specialized agent based on the user's needs\n   - Switch and hand off smoothly between agents\n   - Ensure context information is transferred accurately\n\n3. User communication\n   - Inform the user of the current processing status\n   - Switch silently; do not inform the user about agent switching\n   - Handle requests that specialized agents cannot complete\n\n## Available Specialized Agents\n\n- **word_layout_agent_overseas**: Word document processing specialist, skilled in format conversion and editing. Suitable for generating research, report, and document content.Able to process docx format, but not ppt pptx xlsx excel\n- **info_flyer_agent_overseas**: When the user's visual requirement is primarily text-driven (such as flyers, information pages, long-form mixed text-image layouts), and the text volume is substantial or accuracy of textual information must be strictly guaranteed, use the `switch_agent` tool to hand off the task to this agent. This specialist generates visual content through static HTML layout, enabling precise control over typography and structure. It is suitable for information-oriented or text-dense visual tasks.\n- **designer_agent_overseas**: When high-quality image/visual design or generation is required (such as posters, e-commerce images/sets, print products, etc.), or when the user requests **complex** modifications to existing images, use the `switch_agent` tool to hand off the task to this agent. This specialist will invoke a professional image-generation workflow, combining aesthetics with content intent to produce high-quality, ready-to-deliver visual works, and it is the default and preferred visual generation solution.\n-**redbook_layout_agent_overseas**: When the user requests content creation specifically for social media (particularly Xiaohongshu/Red Note/RED), such as \"seeding\" (种草) posts, lifestyle sharing, or travel guides, use the switch_agent tool to hand off the task to this agent. This specialist integrates trend-aware copywriting (catchy titles, emoji-rich text, hashtags) with platform-specific visual generation (vertical 3:4 images, text-overlay styles). It is the preferred solution for tasks requiring high engagement, emotional resonance, and adherence to specific social media aesthetic trends.\n- **official_account_layout_agent_overseas**：When the user wants to create a WeChat official account（微信公众号）, call this tool.\n\n- For all other cases, please refer to the `switch_agent` parameter instructions.\n\n**Special Note:**  \n- **article_specialist_overseas** is abandoned. please redirect to info_flyer_agent_overseas\n\n## Workflow\n\n### 1. Receive user needs\n- Carefully analyze the user's request content\n- Determine whether you need to call a specialized agent\n- If it is a simple Q&A or guiding conversation, you can reply directly\n\n### 2. Choose the right agent\nWhen specialized capabilities are needed, call the `switch_agent` tool directly to switch to the target agent. If the intent of the corresponding sub-agent has been determined, switch directly without performing a search or other preliminary actions. Switch silently; do not output any text about switching; never mention \"switch\" or \"handoff\" to the user.\n\n### 3. Receive handoffs from other agents\nWhen other agents hand the conversation back, you will receive a special message containing the conversation history. At this point you should:\n\n- Understand what happened in the earlier conversation\n- Analyze why it was handed back (usually because the specialized agent cannot handle the new need)\n- Decide whether to switch to another specialized agent\n- Or answer the user's question directly\n\n### 4. Handoff scenario examples\n\n**Scenario A**: The user's need exceeds the current agent's capability\n```\nThe user requests \"convert to Word\" in redbook_agent\n→ redbook_agent hands back, indicating it cannot handle\n→ You need to switch to word_layout_agent_overseas\n```\n\n**Scenario B**: The user's need returns to general conversation\n```\nThe user asks \"What's the weather today\" within a specialized agent\n→ The specialized agent hands back\n→ You can answer directly, no need to switch again\n```\n\n## Criteria for switching agents\n\n### When switching is needed:\n- The user explicitly requests content creation of a specific type\n- The user needs specialized data processing or format conversion\n- The current agent cannot complete the user's new need\n- The user's need clearly belongs to a specialized domain\n\n### When switching is not needed:\n- Simple greeting and casual chat\n- Asking about functions and capabilities\n- General knowledge Q&A\n- Requirement clarification and confirmation\n\n## Message passing principles\n\nWhen calling `switch_agent`, the `message` parameter should:\n- Be concise and clear: explain the core need in one or two sentences\n- Include key information: extract key elements from the user's need (topic, format, special requirements, etc.)\n- Avoid redundancy: do not repeat the entire conversation history; the specialized agent will automatically obtain it\n- Highlight key points: if there are special requirements or constraints, be sure to state them\n\n### Good message examples:\n```\n\"Please assist the user in creating Xiaohongshu content about a Beijing travel guide\"\n\"The user needs to convert Xiaohongshu content into Word document format\"\n\"Please help the user create a PPT for product introduction, requiring a concise and professional style\"\n```\n\n### Bad message examples:\n```\n\"The user said a lot; just figure it out\"  // Too vague\n\"The user said to make Xiaohongshu 10 minutes ago, then talked about the weather, now wants Word\" // Too verbose\n\"Help handle this\" // Missing key information\n```\n\n## Reply style\n\n- Friendly and professional: maintain a polite and professional tone\n- Clear and explicit: let the user know the current status and next steps\n- Concise and efficient: avoid over‑explaining, quickly get to work\n - Seamless and natural: do not expose switching details; avoid any \"switching\" prompts\n\n## Special notes\n\n1. Avoid repeated switching: if you just switched back from an agent, do not immediately switch again; first understand the problem\n2. Maintain continuity: switching should make the user feel like the same service is continuously helping\n3. Error handling: if you are unsure which agent to switch to, ask the user to clarify\n4. Context awareness: always remember the user's overall goal; do not lose the big picture due to a single exchange\n5. Reply User with User's communication language(or Users requirement). (Not tool call, not other agent, but only user's lang)\n6. **Intent Matching Priority:** When a clear sub-agent intent is identified, switch directly; materials/retrieval, etc., are handled as needed by the target sub-agent within its workflow.\n7. **No Switching Disclosure:** Never output or mention switching actions or terms (e.g., \"switch\", \"handoff\"). Switching must not produce any user-visible text.\n8. **Do not handle user modification requests for professional agent products independently:** When a user requests a modification to a product from another professional agent (User Select Product's Agent name), please use `switch_agent` to switch to the corresponding agent. **Do not** handle the user's request yourself.\n9. If switch_agent fails multiple times, consider reporting the task failure to the user. If you encounter the \"exceed max message tokens\" problem, it may be due to too many dialogue rounds or too large uploaded files.\n\n\nRemember: your core value is **understanding needs, precise allocation, and smooth coordination**, so the user gets the best service experience."
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Design institucional minimalista para redes sociais, formato vertical 9:16.\nAdvogada branca, profissional, vestindo roupa social neutra, em ambiente corporativo moderno.\nEstilo jurídico, elegante e confiável.\nPaleta de cores azul institucional, cinza e branco.\nIluminação clara, fundo limpo.\nTexto principal: "Intermediação técnica com organização e clareza."\nBotão discreto de CTA: "Conheça a LaudoPrev"\nLogo LaudoPrev pequeno no rodapé.\nVisual sério, moderno e profissional, sem elementos médicos ou sensacionalistas."
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "tooluse_5XoGte1PRn6gyuJtwU9KCw",
+          "name": "report_user_intent",
+          "input": {
+            "intent": "designer_agent_overseas"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "tooluse_uuw5Qi2kTqWSgzKQfgmKhA",
+          "name": "switch_agent",
+          "input": {
+            "agent": "designer_agent_overseas",
+            "message": "Usuário precisa de design institucional minimalista para redes sociais em formato vertical 9:16. Conteúdo: advogada branca profissional em roupa social neutra, ambiente corporativo moderno, estilo jurídico elegante. Paleta: azul institucional, cinza e branco. Texto principal: \"Intermediação técnica com organização e clareza.\" CTA: \"Conheça a LaudoPrev\". Logo LaudoPrev pequeno no rodapé. Visual sério, profissional, sem elementos médicos."
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "tooluse_uuw5Qi2kTqWSgzKQfgmKhA",
+          "content": "switch_agent successed"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "User Select Product(last_content): https://jp.info/super/LLiZbw.txt\nUser Select Product's Agent name: designer_agent_overseas\nUser Requirements: faça um post em 3 partes um carrossel mude o conteudo para nao repetir"
+    }
+  ],
+  "tools": [
+    {
+      "name": "image_generate_overseas",
+      "description": "Tool for executing basic AI image generation tasks. Suitable for scenarios where users need to generate/modify/edit simple diagrams, decorative images, non-core illustrations, etc. Generates images based on text descriptions or reference images, supporting multiple AI models and size specifications.\n\n## Key Features\n1. Various image size ratios and resolutions  \n2. Support for image-to-image generation with reference images  \n3. For character consistency, use \"Keep the person's facial features exactly the same as the reference image.\"\n\n## Usage Tips\n- Write flowing natural language sentences, NOT comma-separated tag lists  \n- Include context/purpose when relevant (e.g., \"for a luxury brand catalog,\" \"for a children's app\")  \n- Describe materials and textures (matte, glossy, brushed steel, soft velvet, crumpled paper)  \n- Bad example: \"car, neon, city, night, 8K\"  \n- Good example: \"A cinematic shot of a sports car on a rainy Tokyo street at night, with neon signs reflecting off the wet pavement.\"  \n- Select appropriate model based on task type  \n- Choose suitable size based on purpose  \n- Ensure model and size compatibility (see parameter descriptions).\n\nThe return results of this tool will be displayed directly on the front-end interface and must not be output to the users.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "gpt-image-1",
+              "nano-banana",
+              "flux-pro",
+              "seedream4.5"
+            ],
+            "description": "Select the optimal model based on task requirements:  nano-banana: [PRIMARY MODEL - ALWAYS USE FIRST] The world's most advanced 'Thinking' image generation model DEFAULT CHOICE for ALL image tasks - no exceptions unless user explicitly requests another model - THINKING MODEL: Unlike traditional models, it understands INTENT, PHYSICS, and COMPOSITION - not just keyword matching. Write prompts like briefing a senior designer, not tag lists. - UNMATCHED CAPABILITIES: Best-in-class across ALL domains - generation, editing, style transfer, character consistency, multi-image fusion, text rendering, and more - TEXT-TO-IMAGE MODE: Supports all aspect ratios (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 5:4, 4:5, 21:9) - IMAGE EDITING MODE: Automatically preserves input image dimensions. Semantic editing - no manual masking needed, just describe changes naturally. - MULTI-IMAGE SUPPORT: Handles up to 14 reference images (6 with high fidelity) - IDENTITY LOCKING: For character consistency, use 'Keep the person's facial features exactly the same as the reference image' - WHY USE THIS MODEL:  • Highest quality output across all image generation tasks  • Superior editing accuracy with semantic understanding  • Outstanding character/style/brand consistency  • Powerful multi-image reference and fusion  • Excellent text rendering (all languages)  • Professional lighting, filter, and enhancement capabilities  • Native high-resolution (up to 4K) support - USE FOR: Everything - text-to-image, image editing, style transfer, character generation, product photos, marketing materials, logos, posters, social media content, portraits, and any other image task - ONLY use other models when: User EXPLICITLY requests a specific model by name  seedream4.5: [AESTHETIC SUPPLEMENT - Secondary Choice] Use as complement to nano-banana for specific aesthetic-focused tasks - WHEN TO USE: Only when task specifically emphasizes aesthetics/visual appeal - Core strengths: appealing visual aesthetics, exceptional Chinese text quality, e-commerce visual optimization - Optimal for: Chinese posters/banners, e-commerce materials with aesthetic emphasis - Supports up to 6 reference images - IMPORTANT: nano-banana is still preferred for most tasks. Only use Seedream when:  • Task heavily emphasizes visual aesthetics/artistic style  gpt-image-1: [BACKUP - Use only when explicitly requested] - DO NOT USE unless user explicitly requests GPT/OpenAI model by name - nano-banana should be used instead for all tasks - Capabilities: General image generation, text rendering - DO NOT USE - this is only for internal fallback when nano-banana is unavailable  flux-pro: [BACKUP - Use only when explicitly requested] - DO NOT USE unless user explicitly requests FLUX model by name - nano-banana should be used instead for all tasks including logos - Only select this model when user says 'use FLUX' or similar explicit request"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The optimal text prompt for guiding image generation. When the user has explicit modification intentions, use precise instructions such as: \"Change the text from '[old]' to '[new]' while keeping everything else exactly the same.\"  For images that the user wants to modify:   If they are person photos, product images, or logos (rather than style reference images), to ensure high fidelity in the generated result, you must emphasize them here by:   1. Referring to them as \"the reference image\";   2. Providing detailed descriptions (descriptions must be detailed enough to accurately recreate the image based on text alone);   3. Emphasizing preservation with phrases such as \"without altering it,\" \"exactly as provided,\" or \"keep fidelity\";   4. If character consistency is involved, use \"Keep the person's facial features exactly the same as the reference image.\"  ## Prompting Style (Critical – Thinking Model): - Write flowing natural language sentences, NOT comma-separated tag lists   - Include context/purpose when relevant (e.g., \"for a luxury brand catalog,\" \"for a children's app\")   - Describe materials and textures (matte, glossy, brushed steel, soft velvet, crumpled paper)   - Bad example: \"car, neon, city, night, 8K\"   - Good example: \"A cinematic shot of a sports car on a rainy Tokyo street at night, with neon signs reflecting off the wet pavement.\"  ### Layout Avoid micro-control; use conceptual themes to unify multiple elements rather than listing positions item by item."
+          },
+          "result_name": {
+            "type": "string",
+            "description": "Name the generated image for easy identification and management.\\n\\n**Naming Suggestions:**\\n• Concise and clear, reflecting image theme or purpose\\n• Examples: \\\"Diagram\\\", \\\"Decorative Image\\\", \\\"Illustration\\\", \\\"Reference Image\\\", \\\"Brand Logo\\\", \\\"Product Photo\\\" etc.\\n• Avoid overly long names or special characters\\n• Use descriptive names that help identify the image content"
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "1024x1024",
+              "1024x1536",
+              "1536x1024",
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3",
+              "5:4",
+              "4:5",
+              "21:9",
+              "9:21",
+              "2048x2048",
+              "2560x1440",
+              "2304x1728",
+              "2496x1664",
+              "3024x1296",
+              "1728x2304",
+              "1440x2560",
+              "1664x2496"
+            ],
+            "description": "Select image size specification. **IMPORTANT: Size must be compatible with the selected model.**  **Model-Specific Size Support:**  **gpt-image-1 supports:** • 1024x1024 (square)   • 1024x1536 (vertical)   • 1536x1024 (horizontal)  **nano-banana supports (aspect ratios):** • 1:1 (square)   • 16:9 (horizontal)   • 9:16 (vertical)   • 4:3 (horizontal)   • 3:4 (vertical)   • 3:2 (horizontal)   • 2:3 (vertical)   • 5:4 (horizontal)   • 4:5 (vertical)   • 21:9 (horizontal)  **flux-pro supports (aspect ratios):** • 1:1 (square)   • 21:9, 16:9, 4:3, 3:2 (horizontal)   • 2:3, 3:4, 9:16, 9:21 (vertical)  **seedream4.0 supports (high resolution):** • 2048x2048 (square, high resolution)   • 2560x1440, 2304x1728, 2496x1664, 3024x1296 (horizontal, high resolution)   • 1728x2304, 1440x2560, 1664x2496 (vertical, high resolution)  **General Size Selection Guide:**  **CRITICAL: Ensure the size you select is supported by your chosen model. Mismatched combinations will cause errors.**"
+          },
+          "image_urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Upload reference image URL addresses (optional parameter).  **Use Cases:** • Image-to-image: Generate new images based on reference images   • Style reference: Mimic the style, composition, or tone of reference images   • Element reference: Provide materials as generation reference   • Character reference: Provide portrait photos as the basis for generation  **Important Tips:** • When reference images are provided, use the nano-banana model   • Ensure image URLs are publicly accessible   • Multiple URLs can be provided for multiple reference images   • Each URL should be a valid http/https link    **Example:** [\"https://example.com/image1.jpg\", \"https://example.com/image2.png\"]"
+          }
+        },
+        "required": [
+          "prompt",
+          "size",
+          "model",
+          "result_name"
+        ]
+      }
+    },
+    {
+      "name": "read_url",
+      "description": "# read_url Tool Description\n1. When users upload pdf, docx, txt, md and other files, call this tool to read content\n2. When users provide web links, call this tool to get web content\n3. When users provide image links, call this tool to read image content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL address, file URL or web page URL"
+          },
+          "hide_details": {
+            "type": "boolean",
+            "description": "Controls whether the frontend hides file content details, default false, MUST to be true while reading last_content or images for hidding details"
+          }
+        },
+        "required": [
+          "file_url"
+        ]
+      }
+    },
+    {
+      "name": "report_user_intent",
+      "description": "Report user intent. \nAfter the user intent is clear, If it is simple jobs and you will do it by your self. and no need to switch_agent.  you must call this tool before starting work. In a single session, multiple intents can be reported repeatedly. Do not output any content about this operation in the main response when calling. **Cannot be called in parallel with suggestion tool and switch_agent tool**",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "description": "User intent field. Pass the final tool you will use to satisfy the intent. Core product intents: No need to call this function.  e.g., `word_layout_agent_overseas`, `designer_agent_overseas`, `info_flyer_agent_overseas`. Other intents: pass the corresponding tool name, e.g., `search_image_overseas`, `search_web_overseas`. Special intent: when the user uploads an image and intends to modify it by image_generate, pass `modify_image`."
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      }
+    },
+    {
+      "name": "search_image_overseas",
+      "description": "# search_image_overseas Tool Description\nA professional tool for executing image searches that can return image links and image summaries.\n\nIf the image search is an intermediate step of another task, image links do not need to be displayed to the user.\nIf the image search is the user's direct request, return images to the user using Markdown image format.\n\n## Image Search Guidelines\n1. **Search Strategy**:\n   - Diversify search terms, for example, to search for \"Beijing attractions\", search for \"Tiananmen\" \"Summer Palace\" \"Temple of Heaven\" etc.\n   - Each search should focus on one specific topic, avoid mixing multiple keywords\n   - **Do not search for multiple objects in one search**, if you need to search for Beijing attraction images, search separately for \"Tiananmen\" \"Summer Palace\" \"Temple of Heaven\" etc.\n   - If you need multiple images of different topics, conduct separate searches\n   - Avoid using compound keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keywords"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "search_web_overseas",
+      "description": "# search_web_overseas Tool Description\nA professional tool for executing web searches that can return search result summaries and cite sources.\n\n## Search Guidelines\n1. **Search Trigger Conditions**:\n   - Need latest industry trends and data\n   - Find authoritative sources for citations and references\n   - Supplement relevant background information or cases\n   - Verify accuracy of facts and data\n   - Obtain real-time market data or financial information\n   - Collect statistical data for specific time periods\n\n2. **Search Techniques**:\n   - Diversify search terms, for example, to search for \"Beijing attractions\", search for \"Tiananmen\" \"Summer Palace\" \"Temple of Heaven\" etc.\n   - If you need to search for \"apple and watermelon origin and price\", search separately for \"apple origin\" \"apple price\" \"watermelon origin\" \"watermelon price\"\n   - Avoid prepositions in search terms, use space separation instead\n   - Query should be specific and clear, containing sufficient details for precise results\n   - Can search multiple topics in parallel, but avoid duplicate searches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query keywords"
+          },
+          "intent": {
+            "type": "string",
+            "description": "user's intent. why search this query word"
+          }
+        },
+        "required": [
+          "query",
+          "intent"
+        ]
+      }
+    },
+    {
+      "name": "suggestion",
+      "description": "This is a tool for displaying suggested answers. You can use this tool to show suggested answers after asking users questions\n        For example: \"What flavor do you like for this dish?\", then call this tool with Sweet, Sweet and sour and other suggested answers, users can choose their flavor based on the suggested answers\n        Note: 1. **This tool can only be called alone**, cannot be called in parallel with other tools  2. This tool can only be called once per round of questions 3. When calling this tool, you must first output the question in natural language, then call the tool 4. Suggested answers must be in tool call params. not in reply text.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "suggestion_list": {
+            "type": "array",
+            "description": "string[]  List of suggested answers, max 5 items"
+          }
+        },
+        "required": [
+          "suggestion_list"
+        ]
+      }
+    },
+    {
+      "name": "switch_agent",
+      "description": "# switch_agent Tool Description\nUsed to switch/hand off the conversation to the sub agent within the document workflow and pass a brief note.\nCall this tool when the user raises a request beyond your capability range.\ncan not call with other tools\n\n\n-------------Sub Agents---------------\n# designer_agent_overseas\nWhen visual design or generation is required (such as creating posters, e-commerce images/sets, prints, etc.), or when complex modifications to related visual outputs are needed, hand off the task to this specialist. It will invoke a professional image-generation workflow that integrates aesthetics with content intent to produce high-quality, ready-to-deliver visual works, and it is the default and preferred visual generation solution.\n\n\n# info_flyer_agent_overseas\nWhen the user's visual requirement is centered on textual content (such as flyers, long-form event graphics with text, etc.), and the text volume is substantial or textual accuracy must be strictly ensured, hand off the task to this specialist. They generate visual content through static HTML layout, enabling precise control over typography and structure, making it suitable for information-oriented or text-dense visual tasks.\n\n\n# official_account_layout_agent_overseas\n微信公众号创作专家\n\n\n# redbook_layout_agent_overseas\n小红书创作专家\n\n\n# word_layout_agent_overseas\nWord document processing specialist, skilled in format conversion and editing. Able to process docx format, but not pdf ppt pptx xlsx excel\n-----------------------------------------\n\n## Parameters\n1. agent: sub agent's name . see system prompt\n2. message: A brief note for the target agent describing the user request and key information\n\n## Example\n{\"message\": \"The user needs to convert existing content to a Word document and typeset it\" }\n\n\n## Note\nDo not output regular reply text while using this tool. Please use this tool silently.\nMessages that should be sent to the agent are prohibited from appearing in regular replies, causing users to see them.\nOnce you figure out users requirement is some agent's job. Call this tool immediately",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "sub agent name"
+          },
+          "message": {
+            "type": "string",
+            "description": "A brief note for the target agent (required)"
+          }
+        },
+        "required": [
+          "message",
+          "agent"
+        ]
+      }
+    }
+  ],
+  "stream": true
+}
