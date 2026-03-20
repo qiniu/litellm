@@ -10,6 +10,7 @@ sys.path.insert(
 )  # Adds the parent directory to the system path
 
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
+    _get_image_mime_type_from_url,
     add_system_prompt_to_messages,
     get_format_from_file_id,
     handle_any_messages_to_chat_completion_str_messages_conversion,
@@ -254,3 +255,18 @@ def test_split_concatenated_json_invalid_raises():
     """Completely invalid JSON raises JSONDecodeError."""
     with pytest.raises(json.JSONDecodeError):
         split_concatenated_json_objects("not json at all")
+
+
+def test_get_image_mime_type_from_url_json_returns_none():
+    url = "https://vod-common-test.roombox.xdf.cn/asr/83dafa71/asr_uri.json?auth_key=abc123"
+    assert _get_image_mime_type_from_url(url) is None
+
+
+def test_get_image_mime_type_from_url_no_extension_returns_none():
+    url = "https://httpbin.org/uuid"
+    assert _get_image_mime_type_from_url(url) is None
+
+
+def test_get_image_mime_type_from_url_jpeg_with_params():
+    url = "https://example.com/uploads/test_image.JPEG?signature=abc123_xyz"
+    assert _get_image_mime_type_from_url(url) == "image/jpeg"
