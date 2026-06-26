@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Literal, Optional, Tuple, Union
 
 import httpx
@@ -15,6 +16,7 @@ from litellm._logging import verbose_logger
 from litellm.llms.openai.openai import AllMessageValues
 from litellm.utils import is_prompt_caching_valid_prompt
 from litellm.types.llms.vertex_ai import (
+    CachedContent,
     CachedContentListAllResponseBody,
     VertexAICachedContentResponseObject,
 )
@@ -22,15 +24,44 @@ from litellm.types.llms.vertex_ai import (
 from ..common_utils import VertexAIError, get_vertex_base_url
 from ..vertex_llm_base import VertexBase
 from .transformation import (
+    extract_ttl_from_cached_messages,
     separate_cached_messages,
     transform_openai_messages_to_gemini_context_caching,
 )
+from .local_cache_manager import LocalCacheManager, get_cache_manager
 
 local_cache_obj = Cache(
     type=LiteLLMCacheType.LOCAL
 )  # only used for calling 'get_cache_key' function
 
 MAX_PAGINATION_PAGES = 100  # Reasonable upper bound for pagination
+
+
+def parse_ttl_to_seconds(ttl_str: Optional[str]) -> float:
+    if ttl_str is None:
+        return 3600.0
+
+    try:
+        return float(ttl_str.removesuffix("s"))
+    except ValueError:
+        return 3600.0
+
+
+def parse_expire_time_to_remaining_ttl(expire_time_str: str) -> Optional[float]:
+    if not expire_time_str:
+        return None
+
+    try:
+        expire_time = datetime.fromisoformat(
+            expire_time_str.replace("Z", "+00:00")
+        )
+    except ValueError:
+        return None
+
+    remaining_seconds = (expire_time - datetime.now(expire_time.tzinfo)).total_seconds()
+    if remaining_seconds <= 0:
+        return None
+    return remaining_seconds
 
 
 class ContextCachingEndpoints(VertexBase):
@@ -40,8 +71,40 @@ class ContextCachingEndpoints(VertexBase):
     v0: covers Google AI Studio
     """
 
-    def __init__(self) -> None:
+    def __init__(self, local_cache_manager: Optional[LocalCacheManager] = None) -> None:
         super().__init__()
+        self.local_cache_manager = local_cache_manager or get_cache_manager()
+
+    def _store_google_cache_hit(
+        self,
+        cache_key: str,
+        cached_item: CachedContent,
+        vertex_project: Optional[str],
+        vertex_location: Optional[str],
+        custom_llm_provider: Literal["vertex_ai", "vertex_ai_beta", "gemini"],
+    ) -> Optional[str]:
+        cache_id = cached_item.get("name")
+        if cache_id is None:
+            return None
+
+        expire_time = cached_item.get("expireTime")
+        ttl_seconds = (
+            parse_expire_time_to_remaining_ttl(expire_time)
+            if expire_time
+            else 3600.0
+        )
+        if ttl_seconds is None:
+            return None
+
+        self.local_cache_manager.set_cache(
+            cache_key=cache_key,
+            cache_id=cache_id,
+            ttl_seconds=ttl_seconds,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider,
+        )
+        return cache_id
 
     def _get_token_and_url_context_caching(
         self,
@@ -177,7 +240,13 @@ class ContextCachingEndpoints(VertexBase):
             for cached_item in all_cached_items["cachedContents"]:
                 display_name = cached_item.get("displayName")
                 if display_name is not None and display_name == cache_key:
-                    return cached_item.get("name")
+                    return self._store_google_cache_hit(
+                        cache_key=cache_key,
+                        cached_item=cached_item,
+                        vertex_project=vertex_project,
+                        vertex_location=vertex_location,
+                        custom_llm_provider=custom_llm_provider,
+                    )
 
             # Check if there are more pages
             page_token = all_cached_items.get("nextPageToken")
@@ -271,7 +340,13 @@ class ContextCachingEndpoints(VertexBase):
             for cached_item in all_cached_items["cachedContents"]:
                 display_name = cached_item.get("displayName")
                 if display_name is not None and display_name == cache_key:
-                    return cached_item.get("name")
+                    return self._store_google_cache_hit(
+                        cache_key=cache_key,
+                        cached_item=cached_item,
+                        vertex_project=vertex_project,
+                        vertex_location=vertex_location,
+                        custom_llm_provider=custom_llm_provider,
+                    )
 
             # Check if there are more pages
             page_token = all_cached_items.get("nextPageToken")
@@ -370,6 +445,15 @@ class ContextCachingEndpoints(VertexBase):
         generated_cache_key = local_cache_obj.get_cache_key(
             messages=cached_messages, tools=tools, tool_choice=tool_choice, model=model
         )
+        local_cache_id = self.local_cache_manager.get_cache(
+            cache_key=generated_cache_key,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider,
+        )
+        if local_cache_id is not None:
+            return non_cached_messages, optional_params, local_cache_id
+
         google_cache_name = self.check_cache(
             cache_key=generated_cache_key,
             client=client,
@@ -428,10 +512,22 @@ class ContextCachingEndpoints(VertexBase):
         cached_content_response_obj = VertexAICachedContentResponseObject(
             name=raw_response_cached.get("name"), model=raw_response_cached.get("model")
         )
+        cache_id = cached_content_response_obj["name"]
+        self.local_cache_manager.set_cache(
+            cache_key=generated_cache_key,
+            cache_id=cache_id,
+            ttl_seconds=parse_ttl_to_seconds(
+                cached_content_request_body.get("ttl")
+                or extract_ttl_from_cached_messages(cached_messages)
+            ),
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider,
+        )
         return (
             non_cached_messages,
             optional_params,
-            cached_content_response_obj["name"],
+            cache_id,
         )
 
     async def async_check_and_create_cache(
@@ -520,6 +616,15 @@ class ContextCachingEndpoints(VertexBase):
         generated_cache_key = local_cache_obj.get_cache_key(
             messages=cached_messages, tools=tools, tool_choice=tool_choice, model=model
         )
+        local_cache_id = self.local_cache_manager.get_cache(
+            cache_key=generated_cache_key,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider,
+        )
+        if local_cache_id is not None:
+            return non_cached_messages, optional_params, local_cache_id
+
         google_cache_name = await self.async_check_cache(
             cache_key=generated_cache_key,
             client=client,
@@ -579,10 +684,22 @@ class ContextCachingEndpoints(VertexBase):
         cached_content_response_obj = VertexAICachedContentResponseObject(
             name=raw_response_cached.get("name"), model=raw_response_cached.get("model")
         )
+        cache_id = cached_content_response_obj["name"]
+        self.local_cache_manager.set_cache(
+            cache_key=generated_cache_key,
+            cache_id=cache_id,
+            ttl_seconds=parse_ttl_to_seconds(
+                cached_content_request_body.get("ttl")
+                or extract_ttl_from_cached_messages(cached_messages)
+            ),
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+            custom_llm_provider=custom_llm_provider,
+        )
         return (
             non_cached_messages,
             optional_params,
-            cached_content_response_obj["name"],
+            cache_id,
         )
 
     def get_cache(self):
